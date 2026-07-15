@@ -117,7 +117,7 @@ The repository does not claim that SMS, WhatsApp, or a production PMS are curren
 
 ## Architecture
 
-![Architecture](assets/architecture-diagram.svg)
+![Architecture](architecture-diagram.svg)
 
 ```mermaid
 flowchart LR
