@@ -1,4 +1,4 @@
-<div align="center">
+<div align="center">t
 
 # Hotel AI Concierge Automation
 
@@ -21,7 +21,7 @@
 
 </div>
 
-![Project cover](assets/project-cover.svg)
+![Project cover](project-cover.svg)
 
 > **Portfolio note:** Hotel Adriatica is a fictional demonstration property created for this project. The workflows illustrate architecture, orchestration, documentation, and secure configuration practices. They are not presented as a production hotel system.
 
