@@ -1,0 +1,47 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="720" viewBox="0 0 1600 720">
+<defs>
+  <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+    <stop offset="0%" stop-color="#07162e"/>
+    <stop offset="100%" stop-color="#163b6d"/>
+  </linearGradient>
+  <filter id="shadow"><feDropShadow dx="0" dy="8" stdDeviation="10" flood-opacity="0.25"/></filter>
+</defs>
+<rect width="1600" height="720" fill="url(#bg)"/>
+<circle cx="1390" cy="90" r="240" fill="#ffffff" opacity="0.04"/>
+<circle cx="180" cy="670" r="260" fill="#60a5fa" opacity="0.08"/>
+<text x="110" y="115" fill="#93c5fd" font-family="Arial, sans-serif" font-size="24" font-weight="700">AUTOMATION PORTFOLIO SERIES · PROJECT 01</text>
+<text x="110" y="205" fill="#ffffff" font-family="Arial, sans-serif" font-size="64" font-weight="700">Hotel AI Concierge</text>
+<text x="110" y="260" fill="#cbd5e1" font-family="Arial, sans-serif" font-size="28">Modular guest service automation across website, Telegram, and email</text>
+
+<g filter="url(#shadow)" font-family="Arial, sans-serif">
+  <rect x="110" y="350" rx="18" width="250" height="110" fill="#ffffff"/>
+  <text x="235" y="395" text-anchor="middle" fill="#0f172a" font-size="24" font-weight="700">Guest Channels</text>
+  <text x="235" y="430" text-anchor="middle" fill="#475569" font-size="18">Tally · Telegram · Gmail</text>
+
+  <rect x="520" y="350" rx="18" width="250" height="110" fill="#ffffff"/>
+  <text x="645" y="395" text-anchor="middle" fill="#0f172a" font-size="24" font-weight="700">n8n Orchestration</text>
+  <text x="645" y="430" text-anchor="middle" fill="#475569" font-size="18">Routing · State · Logging</text>
+
+  <rect x="930" y="350" rx="18" width="250" height="110" fill="#ffffff"/>
+  <text x="1055" y="395" text-anchor="middle" fill="#0f172a" font-size="24" font-weight="700">AI Layer</text>
+  <text x="1055" y="430" text-anchor="middle" fill="#475569" font-size="18">Intent · Language · Reply</text>
+
+  <rect x="1340" y="350" rx="18" width="160" height="110" fill="#ffffff"/>
+  <text x="1420" y="395" text-anchor="middle" fill="#0f172a" font-size="24" font-weight="700">Operations</text>
+  <text x="1420" y="430" text-anchor="middle" fill="#475569" font-size="18">Shared records</text>
+</g>
+
+<g stroke="#93c5fd" stroke-width="5" fill="none">
+  <path d="M360 405 L520 405"/>
+  <path d="M770 405 L930 405"/>
+  <path d="M1180 405 L1340 405"/>
+</g>
+<g fill="#93c5fd">
+  <polygon points="515,405 495,394 495,416"/>
+  <polygon points="925,405 905,394 905,416"/>
+  <polygon points="1335,405 1315,394 1315,416"/>
+</g>
+
+<text x="110" y="590" fill="#ffffff" font-family="Arial, sans-serif" font-size="26" font-weight="700">Built with n8n · Google Gemini · Google Sheets · Telegram · Gmail · Tally</text>
+<text x="110" y="635" fill="#94a3b8" font-family="Arial, sans-serif" font-size="20">Business-first workflow design · Secure public configuration · Honest production limitations</text>
+</svg>
