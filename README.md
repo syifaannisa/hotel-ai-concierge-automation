@@ -236,8 +236,8 @@ Recommended tabs include:
 
 Detailed columns are documented in:
 
-- [`docs/google-sheets-schema.md`](docs/google-sheets-schema.md)
-- [`sample-data/google-sheets-schema.csv`](sample-data/google-sheets-schema.csv)
+- [`google-sheets-schema.md`](google-sheets-schema.md)
+- [`google-sheets-schema.csv`](google-sheets-schema.csv)
 
 Google Sheets is intentionally used because it makes the workflow easy to inspect in a portfolio setting. It is not presented as the ideal database for a high-volume hotel operation.
 
@@ -260,7 +260,7 @@ The public workflow files use credential references and environment-variable pla
 Review:
 
 - [`SECURITY.md`](SECURITY.md)
-- [`docs/sanitisation-report.md`](docs/sanitisation-report.md)
+- [`sanitisation-report.md`](sanitisation-report.md)
 - [`.env.example`](.env.example)
 
 Any credential that appeared in an earlier private export should be rotated before the repository is published.
@@ -293,9 +293,9 @@ Any credential that appeared in an earlier private export should be rotated befo
 
 Full instructions:
 
-- [`docs/setup-guide.md`](docs/setup-guide.md)
-- [`docs/configuration-reference.md`](docs/configuration-reference.md)
-- [`docs/testing-checklist.md`](docs/testing-checklist.md)
+- [`setup-guide.md`](setup-guide.md)
+- [`configuration-reference.md`](configuration-reference.md)
+- [`testing-checklist.md`](testing-checklist.md)
 
 ---
 
@@ -359,7 +359,7 @@ The manual test matrix covers:
 - escalation conditions;
 - duplicate or repeated events.
 
-See [`docs/testing-checklist.md`](docs/testing-checklist.md).
+See [`testing-checklist.md`](testing-checklist.md).
 
 ---
 
