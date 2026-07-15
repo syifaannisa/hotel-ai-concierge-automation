@@ -1,0 +1,20 @@
+VERIFIED PACKAGE — HOTEL AI CONCIERGE V3
+
+Critical files confirmed:
+- README.md
+- PROJECT_OVERVIEW.md
+- LICENSE
+- SECURITY.md
+- .gitignore
+- .env.example
+- assets/
+- docs/
+- workflows/
+- sample-data/
+- .github/
+
+MAC FINDER:
+Press Command + Shift + . to display hidden files.
+
+Do not upload the batch-number folder itself.
+Open the batch folder and upload its contents.
