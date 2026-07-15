@@ -1,0 +1,32 @@
+tab,column,description
+Conversations,timestamp,ISO timestamp for the request
+Conversations,session_id,Unique demonstration session identifier
+Conversations,channel,Source channel
+Conversations,guest_name,Fictional guest name
+Conversations,guest_phone,Fictional or blank phone value
+Conversations,guest_email,Fictional or blank email value
+Conversations,guest_message,Incoming request
+Conversations,intent,Detected request intent
+Conversations,language,Detected or selected language
+Conversations,urgency,Low medium or high
+Conversations,ai_response,Generated response
+Telegram_Sessions,chat_id,Fictional Telegram chat identifier
+Telegram_Sessions,step,Current conversation state
+Telegram_Sessions,guest_name,Fictional guest name
+Telegram_Sessions,check-in,Requested arrival date
+Telegram_Sessions,check-out,Requested departure date
+Telegram_Sessions,room_pref,Selected room preference
+Telegram_Sessions,guests,Number of guests
+Telegram_Sessions,email,Fictional confirmation email
+Telegram_Sessions,intent,Current guest intent
+Telegram_Sessions,last_update,Last session update
+Email_Log,Timestamp,Email processing timestamp
+Email_Log,Channel,Email
+Email_Log,Guest Name,Fictional guest name
+Email_Log,Guest Email,Fictional guest email
+Email_Log,Subject,Email subject
+Email_Log,Guest Message,Incoming email body
+Email_Log,AI Reply,Generated reply
+Email_Log,Intent,Detected intent
+Email_Log,Language,Detected language
+Email_Log,Status,Processing status
