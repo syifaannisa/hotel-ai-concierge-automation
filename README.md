@@ -1,4 +1,4 @@
-<div align="center">t
+<div align="center">
 
 # Hotel AI Concierge Automation
 
