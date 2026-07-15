@@ -1,0 +1,340 @@
+{
+  "name": "Hotel AI Concierge — Email",
+  "nodes": [
+    {
+      "parameters": {
+        "pollTimes": {
+          "item": [
+            {
+              "mode": "everyMinute"
+            }
+          ]
+        },
+        "filters": {
+          "readStatus": "unread",
+          "sender": ""
+        }
+      },
+      "id": "216f7686-69cd-4d7e-b5b9-c7ee749f8365",
+      "name": "Receive New Guest Email",
+      "type": "n8n-nodes-base.gmailTrigger",
+      "typeVersion": 1,
+      "position": [
+        -112,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const email = $input.first().json;\n\n// Gmail node uses capital \"From\", \"Subject\", \"To\"\nconst from = email.From || email.from || email.headers?.from || '';\nconst subject = email.Subject || email.subject || '(No Subject)';\nconst body = email.text || email.snippet || '';\nconst messageId = email.id || '';\nconst threadId = email.threadId || '';\n\n// Parse email address\nlet guestName = '';\nlet guestEmail = '';\n\nconst angleMatch = from.match(/\"?([^\"<]+)\"?\\s*<([^>]+)>/);\nconst plainMatch = from.match(/[\\w.-]+@[\\w.-]+\\.\\w+/);\n\nif (angleMatch) {\n  guestName = angleMatch[1].trim();\n  guestEmail = angleMatch[2].trim();\n} else if (plainMatch) {\n  guestEmail = plainMatch[0].trim();\n  guestName = guestEmail.split('@')[0];\n} else {\n  guestEmail = from.trim();\n  guestName = 'Guest';\n}\n\n// Clean body\nconst cleanBody = body\n  .split('\\nOn ')[0]\n  .split('\\n>')[0]\n  .trim()\n  .substring(0, 1000);\n\nreturn [{\n  json: {\n    channel: 'email',\n    guestName: guestName || 'Guest',\n    guestEmail: guestEmail,\n    subject: subject,\n    message: cleanBody,\n    messageId: messageId,\n    threadId: threadId,\n    timestamp: new Date().toISOString()\n  }\n}];"
+      },
+      "id": "c39557cc-689d-4f8d-937d-6224c8c3bdd8",
+      "name": "Parse Guest Email",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        112,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $input.first().json;\nconst subject = data.subject.toLowerCase();\nconst message = data.message.toLowerCase();\n\n// Detect language\nlet detectedLang = 'English';\nif (message.match(/\\b(ciao|buongiorno|buonasera|vorrei|camera|prenotare|grazie)\\b/i)) {\n  detectedLang = 'Italian';\n} else if (message.match(/\\b(mirëdita|mirëmbrëma|dhomë|rezervim|faleminderit|çmim)\\b/i)) {\n  detectedLang = 'Albanian';\n} else if (message.match(/\\b(hola|buenos|habitación|reservar|gracias|precio)\\b/i)) {\n  detectedLang = 'Spanish';\n} else if (message.match(/\\b(hallo|guten|zimmer|buchen|danke|preis)\\b/i)) {\n  detectedLang = 'German';\n} else if (message.match(/\\b(bonjour|bonsoir|chambre|réserver|merci|prix)\\b/i)) {\n  detectedLang = 'French';\n}\n\n// Detect intent\nlet intent = 'general_inquiry';\nif (subject.match(/book|reserv|room|stay|availab/i) || message.match(/book|reserv|room|stay|availab|check.?in|check.?out/i)) {\n  intent = 'booking_inquiry';\n} else if (subject.match(/cancel/i) || message.match(/cancel/i)) {\n  intent = 'cancellation';\n} else if (subject.match(/price|rate|cost|how much/i) || message.match(/price|rate|cost|how much|tariff/i)) {\n  intent = 'pricing_inquiry';\n} else if (subject.match(/amenit|facilit|pool|spa|restaur/i) || message.match(/amenit|facilit|pool|spa|restaur|gym/i)) {\n  intent = 'amenities_inquiry';\n} else if (subject.match(/direction|location|address|how to get/i) || message.match(/direction|location|address|how to get|transport/i)) {\n  intent = 'directions_inquiry';\n}\n\nreturn [{\n  json: {\n    ...data,\n    detectedLang,\n    intent\n  }\n}];"
+      },
+      "id": "0cdc132f-1be5-4800-893b-ea7a5bf51afc",
+      "name": "Detect Language and Intent",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        352,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={{ $env.GEMINI_API_KEY }}",
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ $('Prepare Gemini Email Prompt').first().json.geminiBody }}",
+        "options": {}
+      },
+      "id": "f837b0b1-cfe2-4e2d-bb65-02e103cf04ee",
+      "name": "Generate AI Email Response",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        768,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const geminiResponse = $input.first().json;\nconst emailData = $('Detect Language and Intent').first().json;\n\nconst aiText = geminiResponse.candidates?.[0]?.content?.parts?.[0]?.text || '';\n\nconst fallback = `Dear ${emailData.guestName},\n\nThank you for contacting Hotel Adriatica! We would be delighted to assist you with your booking.\n\nTo complete your reservation, please provide:\n\n1. Check-in date?\n2. Check-out date?\n3. Number of guests?\n4. Room preference?\n   - Standard Room: €80/night\n   - Deluxe Lake View: €120/night\n   - Junior Suite: €180/night\n   - Penthouse Suite: €300/night\n\nWarm regards,\nSofia | AI Concierge | Hotel Adriatica\n+355 22 123 456 | info@hoteladriatica.al`;\n\nconst plainText = (aiText && aiText.trim().length > 80) ? aiText.trim() : fallback;\n\n// Convert plain text to HTML\nconst htmlBody = '<div style=\"font-family:Arial,sans-serif;font-size:14px;line-height:1.6;color:#333;\">' \n  + plainText.replace(/\\n\\n/g, '</p><p>').replace(/\\n/g, '<br>') \n  + '</p></div>';\n\nconst originalSubject = emailData.subject || '';\nconst replySubject = originalSubject.startsWith('Re:') ? originalSubject : `Re: ${originalSubject}`;\n\nreturn [{\n  json: {\n    replyBody: htmlBody,\n    replySubject: replySubject,\n    toEmail: emailData.guestEmail,\n    guestName: emailData.guestName,\n    guestEmail: emailData.guestEmail,\n    originalMessage: emailData.message,\n    intent: emailData.intent,\n    detectedLang: emailData.detectedLang,\n    threadId: emailData.threadId,\n    timestamp: emailData.timestamp\n  }\n}];"
+      },
+      "id": "bf5cf6e7-91ba-4a38-baf5-fa321c92293f",
+      "name": "Prepare Email Reply",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        992,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "sendTo": "={{ $('Prepare Email Reply').first().json.toEmail }}",
+        "subject": "={{ $('Prepare Email Reply').first().json.replySubject }}",
+        "message": "={{ $('Prepare Email Reply').first().json.replyBody }}",
+        "options": {}
+      },
+      "id": "d6de920a-f717-4bb4-a962-57efa52af9b9",
+      "name": "Send Guest Email Response",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        1216,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $env.GOOGLE_SHEET_ID }}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 1054730121,
+          "mode": "list"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Timestamp": "={{ $('Prepare Email Reply').first().json.timestamp }}",
+            "Channel": "Email",
+            "Guest Name": "={{ $('Prepare Email Reply').first().json.guestName }}",
+            "Guest Email": "={{ $('Prepare Email Reply').first().json.toEmail }}",
+            "Subject": "={{ $('Prepare Email Reply').first().json.replySubject }}",
+            "Guest Message": "={{ $('Prepare Email Reply').first().json.originalMessage }}",
+            "AI Reply": "={{ $('Prepare Email Reply').first().json.replyBody }}",
+            "Intent": "={{ $('Prepare Email Reply').first().json.intent }}",
+            "Language": "={{ $('Prepare Email Reply').first().json.detectedLang }}",
+            "Status": "Sent"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "Timestamp",
+              "displayName": "Timestamp",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Channel",
+              "displayName": "Channel",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Guest Name",
+              "displayName": "Guest Name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Guest Email",
+              "displayName": "Guest Email",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Subject",
+              "displayName": "Subject",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Guest Message",
+              "displayName": "Guest Message",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "AI Reply",
+              "displayName": "AI Reply",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Intent",
+              "displayName": "Intent",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Language",
+              "displayName": "Language",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Status",
+              "displayName": "Status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "id": "f73633b2-4c9b-4965-8d07-9bc31d8736ed",
+      "name": "Store Conversation Log",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.4,
+      "position": [
+        1440,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const d = $('Detect Language and Intent').first().json;\n\nconst prompt = `You are Sofia, AI concierge of Hotel Adriatica, Shkodër Albania.\n\nROOMS: Standard €80, Deluxe Lake View €120, Junior Suite €180, Penthouse €300/night. Breakfast €15. Pool, Spa, Restaurant 7AM-11PM, Free WiFi. No pets. Cancellation free 48h before. Contact: +355 22 123 456.\n\nGuest Name: ${d.guestName}\nMessage: ${d.message}\nLanguage: ${d.detectedLang}\nIntent: ${d.intent}\n\nInstructions: Reply in guest language. If booking_inquiry, ask these 4 questions clearly numbered:\n1. Check-in date?\n2. Check-out date?\n3. Number of guests?\n4. Room preference? (Standard €80, Deluxe €120, Junior Suite €180, Penthouse €300)\n\nMax 250 words. Warm professional tone. End with: Warm regards, Sofia | AI Concierge | Hotel Adriatica | +355 22 123 456`;\n\nreturn [{\n  json: {\n    ...d,\n    geminiBody: JSON.stringify({\n      contents: [{ parts: [{ text: prompt }] }],\n      generationConfig: { maxOutputTokens: 1024, temperature: 0.7 }\n    })\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        560,
+        0
+      ],
+      "id": "7186dc72-4f47-4a47-bcee-eca24565dc75",
+      "name": "Prepare Gemini Email Prompt"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Receive New Guest Email": {
+      "main": [
+        [
+          {
+            "node": "Parse Guest Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Guest Email": {
+      "main": [
+        [
+          {
+            "node": "Detect Language and Intent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Detect Language and Intent": {
+      "main": [
+        [
+          {
+            "node": "Prepare Gemini Email Prompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate AI Email Response": {
+      "main": [
+        [
+          {
+            "node": "Prepare Email Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Email Reply": {
+      "main": [
+        [
+          {
+            "node": "Send Guest Email Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Guest Email Response": {
+      "main": [
+        [
+          {
+            "node": "Store Conversation Log",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Gemini Email Prompt": {
+      "main": [
+        [
+          {
+            "node": "Generate AI Email Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "20c3c75e-07c5-4734-a225-5cb4a4d957b6",
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "id": "3rClWIKVDsEbqcZr",
+  "tags": []
+}
