@@ -1,0 +1,713 @@
+{
+  "name": "Hotel AI Concierge — Telegram",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "hotel-telegram",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "950abb6f-31a2-455e-b85d-311c5c1e712d",
+      "name": "Receive Telegram Update",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [
+        -1248,
+        128
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const raw = $input.first().json;\nconst body = raw.body || raw;\n\nlet chatId = 'unknown';\nlet text = '';\nlet firstName = '';\nlet lastName = '';\nlet username = '';\nlet callbackQueryId = null;\nlet isCallback = false;\n\nif (body.message) {\n  chatId    = String(body.message.chat.id);\n  text      = (body.message.text || '').trim();\n  firstName = body.message.from.first_name || '';\n  lastName  = body.message.from.last_name || '';\n  username  = body.message.from.username || '';\n\n} else if (body.callback_query) {\n  chatId          = String(body.callback_query.message.chat.id);\n  text            = body.callback_query.data || '';\n  firstName       = body.callback_query.from.first_name || '';\n  lastName        = body.callback_query.from.last_name || '';\n  username        = body.callback_query.from.username || '';\n  callbackQueryId = body.callback_query.id;\n  isCallback      = true;\n}\n\nconst guestName = (firstName + ' ' + lastName).trim() || username || 'Guest';\n\nreturn [{\n  json: {\n    chatId,\n    text,\n    guestName,\n    username,\n    callbackQueryId,\n    isCallback,\n    timestamp: new Date().toISOString()\n  }\n}];"
+      },
+      "id": "37ea85be-e323-4082-b830-a883d4918492",
+      "name": "Parse Telegram Payload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1024,
+        128
+      ]
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $env.GOOGLE_SHEET_ID }}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Telegram_Sessions"
+        },
+        "filtersUI": {
+          "values": [
+            {
+              "lookupColumn": "chat_id",
+              "lookupValue": "={{ $json.chatId }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "325b99c0-5d2d-4f10-8d6d-01d4c0576f63",
+      "name": "Retrieve Guest Session",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [
+        -800,
+        128
+      ],
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const tgData = $('Parse Telegram Payload').first().json;\nconst sessionRows = $input.all();\n\n// Check if session exists\nlet session = null;\nif (sessionRows.length > 0 && sessionRows[0].json.chat_id) {\n  const row = sessionRows[0].json;\n  session = {\n    chatId:    row.chat_id,\n    step:      row.step || 'start',\n    guestName: row.guest_name || tgData.guestName,\n    checkin:   row.checkin || '',\n    checkout:  row.checkout || '',\n    roomPref:  row.room_pref || '',\n    guests:    row.guests || '',\n    email:     row.email || '',\n    intent:    row.intent || ''\n  };\n} else {\n  // New session\n  session = {\n    chatId:    tgData.chatId,\n    step:      'start',\n    guestName: tgData.guestName,\n    checkin:   '',\n    checkout:  '',\n    roomPref:  '',\n    guests:    '',\n    email:     '',\n    intent:    ''\n  };\n}\n\nreturn [{\n  json: {\n    ...tgData,\n    session,\n    isNewSession: !sessionRows[0]?.json?.chat_id\n  }\n}];"
+      },
+      "id": "dd33d027-a01a-4496-83ca-a3a509c608a2",
+      "name": "Build Guest Session State",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -592,
+        128
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $input.first().json;\nconst { session } = data;\n\nconst text = (data.text || '').trim();\nconst lowerText = text.toLowerCase();\nconst step = session.step;\n\nlet replyText = '';\nlet replyMarkup = null;\nlet nextStep = step;\nlet updateSession = { ...session };\n\nconst mainMenu = {\n  inline_keyboard: [\n    [{ text: '🛏 Room Booking', callback_data: 'intent_booking' }],\n    [{ text: '🍽 Room Service', callback_data: 'intent_roomservice' }],\n    [{ text: '❓ FAQ / Info', callback_data: 'intent_faq' }],\n    [{ text: '📞 Other / Talk to Staff', callback_data: 'intent_other' }]\n  ]\n};\n\n// ============================================================\n// STEP MACHINE — urut dari atas, STOP di match pertama\n// ============================================================\n\n// /start atau pesan pertama (step masih 'start')\nif (step === 'start' || text === '/start' || text === '/menu') {\n  replyText = `🏨 Welcome to *Hotel Adriatica*, ${session.guestName}!\\n\\nWhere the sea meets serenity — Shkodër, Albania 🌊\\n\\nHow can I assist you today?`;\n  replyMarkup = mainMenu;\n  nextStep = 'awaiting_intent';\n\n// Guest sudah di awaiting_intent — proses pilihan\n} else if (step === 'awaiting_intent') {\n\n  if (text.startsWith('intent_')) {\n    const choice = text.replace('intent_', '');\n    if (choice === 'booking' || choice === 'start' === false && choice === 'booking') {\n      replyText = '🛏 *Room Booking*\\n\\nPlease enter your *check-in date*\\n_(format: DD Mon, e.g. 20 Jun)_';\n      nextStep = 'awaiting_checkin';\n      updateSession.intent = 'booking';\n    } else if (choice === 'roomservice') {\n      replyText = '🍽 *Room Service*\\n\\nPlease describe what you would like to order:';\n      nextStep = 'awaiting_roomservice_detail';\n      updateSession.intent = 'room_service';\n    } else if (choice === 'faq') {\n      replyText = '❓ *What would you like to know?*';\n      replyMarkup = {\n        inline_keyboard: [\n          [{ text: '🏊 Pool & Facilities', callback_data: 'faq_facilities' }],\n          [{ text: '🕐 Check-in / Check-out', callback_data: 'faq_checkinout' }],\n          [{ text: '🚗 Parking & Transport', callback_data: 'faq_transport' }],\n          [{ text: '🍳 Restaurant Hours', callback_data: 'faq_restaurant' }],\n          [{ text: '📶 WiFi Info', callback_data: 'faq_wifi' }],\n          [{ text: '↩️ Back to Menu', callback_data: 'intent_start' }]\n        ]\n      };\n      nextStep = 'awaiting_faq';\n      updateSession.intent = 'faq';\n    } else if (choice === 'other') {\n      replyText = '📞 Please describe your request and our team will assist you shortly:';\n      nextStep = 'awaiting_other_detail';\n      updateSession.intent = 'other';\n    } else if (choice === 'start') {\n      replyText = '🏨 *Hotel Adriatica* — Main Menu\\n\\nHow can I assist you?';\n      replyMarkup = mainMenu;\n      nextStep = 'awaiting_intent';\n    }\n\n  } else {\n    // Free text — deteksi intent dari kata kunci\n    if (lowerText.includes('book') || lowerText.includes('reservation') || lowerText.includes('room') || lowerText.includes('stay') || lowerText.includes('night')) {\n      replyText = '🛏 *Room Booking*\\n\\nPlease enter your *check-in date*\\n_(format: DD Mon, e.g. 20 Jun)_';\n      nextStep = 'awaiting_checkin';\n      updateSession.intent = 'booking';\n    } else if (lowerText.includes('food') || lowerText.includes('eat') || lowerText.includes('order') || lowerText.includes('service') || lowerText.includes('drink')) {\n      replyText = '🍽 *Room Service*\\n\\nPlease describe what you would like to order:';\n      nextStep = 'awaiting_roomservice_detail';\n      updateSession.intent = 'room_service';\n    } else if (lowerText.includes('wifi') || lowerText.includes('pool') || lowerText.includes('check') || lowerText.includes('parking') || lowerText.includes('restaurant') || lowerText.includes('info') || lowerText.includes('faq')) {\n      replyText = '❓ *What would you like to know?*';\n      replyMarkup = {\n        inline_keyboard: [\n          [{ text: '🏊 Pool & Facilities', callback_data: 'faq_facilities' }],\n          [{ text: '🕐 Check-in / Check-out', callback_data: 'faq_checkinout' }],\n          [{ text: '🚗 Parking & Transport', callback_data: 'faq_transport' }],\n          [{ text: '🍳 Restaurant Hours', callback_data: 'faq_restaurant' }],\n          [{ text: '📶 WiFi Info', callback_data: 'faq_wifi' }]\n        ]\n      };\n      nextStep = 'awaiting_faq';\n      updateSession.intent = 'faq';\n    } else if (lowerText.includes('hi') || lowerText.includes('hello') || lowerText.includes('halo') || lowerText.includes('hey') || lowerText.includes('good')) {\n      replyText = `Hello ${session.guestName}! 👋\\n\\nHow can I assist you today?`;\n      replyMarkup = mainMenu;\n      nextStep = 'awaiting_intent';\n    } else {\n      replyText = 'I\\'m here to help! What would you like to do?';\n      replyMarkup = mainMenu;\n      nextStep = 'awaiting_intent';\n    }\n  }\n\n} else if (step === 'awaiting_checkin') {\n  updateSession.checkin = text;\n  replyText = `✅ Check-in: *${text}*\\n\\nNow please enter your *check-out date*:`;\n  nextStep = 'awaiting_checkout';\n\n} else if (step === 'awaiting_checkout') {\n  updateSession.checkout = text;\n  replyText = `✅ Check-out: *${text}*\\n\\nHow many guests? _(1–4)_`;\n  nextStep = 'awaiting_guests';\n\n} else if (step === 'awaiting_guests') {\n  updateSession.guests = text;\n  replyText = '✅ Got it!\\n\\nWhich room type do you prefer?';\n  replyMarkup = {\n    inline_keyboard: [\n      [{ text: '🛏 Standard — €85/night', callback_data: 'room_standard' }],\n      [{ text: '🌊 Superior Sea View — €120/night', callback_data: 'room_superior' }],\n      [{ text: '🌅 Deluxe Balcony — €155/night', callback_data: 'room_deluxe' }],\n      [{ text: '👑 Junior Suite — €200/night', callback_data: 'room_junior_suite' }],\n      [{ text: '✨ Penthouse Suite — €320/night', callback_data: 'room_penthouse' }],\n      [{ text: '🤷 No preference', callback_data: 'room_any' }]\n    ]\n  };\n  nextStep = 'awaiting_roomtype';\n\n} else if (step === 'awaiting_roomtype' || text.startsWith('room_')) {\n  const roomMap = {\n    'room_standard':     'Standard Room (€85/night)',\n    'room_superior':     'Superior Sea View (€120/night)',\n    'room_deluxe':       'Deluxe Balcony (€155/night)',\n    'room_junior_suite': 'Junior Suite (€200/night)',\n    'room_penthouse':    'Penthouse Suite (€320/night)',\n    'room_any':          'No preference'\n  };\n  updateSession.roomPref = roomMap[text] || text;\n  replyText = `✅ Room: *${updateSession.roomPref}*\\n\\nPlease share your *email address* for booking confirmation:`;\n  nextStep = 'awaiting_email';\n\n} else if (step === 'awaiting_email') {\n  updateSession.email = text;\n  const s = updateSession;\n  replyText = `📋 *Booking Summary*\\n\\n` +\n    `👤 Name: ${s.guestName}\\n` +\n    `📅 Check-in: ${s.checkin}\\n` +\n    `📅 Check-out: ${s.checkout}\\n` +\n    `👥 Guests: ${s.guests}\\n` +\n    `🛏 Room: ${s.roomPref}\\n` +\n    `📧 Email: ${s.email}\\n\\n` +\n    `Shall I confirm this booking?`;\n  replyMarkup = {\n    inline_keyboard: [\n      [{ text: '✅ Yes, confirm!', callback_data: 'confirm_yes' }],\n      [{ text: '✏️ Edit booking', callback_data: 'confirm_edit' }],\n      [{ text: '❌ Cancel', callback_data: 'confirm_cancel' }]\n    ]\n  };\n  nextStep = 'awaiting_confirmation';\n\n} else if (step === 'awaiting_confirmation') {\n  if (text === 'confirm_yes') {\n    replyText = `🎉 *Booking Confirmed!*\\n\\nThank you, ${session.guestName}!\\n\\nYour reservation has been received. A confirmation email will be sent to *${updateSession.email || session.email}*.\\n\\n📞 +355 22 123 456\\n🌐 concierge@adriatica-hotel.com\\n\\nWe look forward to welcoming you! 🏨`;\n    nextStep = 'done';\n    updateSession.intent = 'confirmed_booking';\n  } else if (text === 'confirm_edit') {\n    replyText = 'No problem! Please enter your *check-in date*:';\n    nextStep = 'awaiting_checkin';\n    updateSession.checkin = '';\n    updateSession.checkout = '';\n    updateSession.roomPref = '';\n    updateSession.guests = '';\n  } else if (text === 'confirm_cancel') {\n    replyText = '❌ Booking cancelled. Anything else I can help with?';\n    replyMarkup = { inline_keyboard: [[{ text: '↩️ Back to Menu', callback_data: 'intent_start' }]] };\n    nextStep = 'start';\n  }\n\n} else if (step === 'awaiting_faq') {\n  const faqMap = {\n    'faq_facilities': '🏊 *Pool & Facilities*\\n\\nOutdoor infinity pool: 08:00–20:00 (heated May–Oct)\\nSpa & Wellness: 09:00–21:00\\nFitness Center: 06:00–22:00\\nPrivate beach: 200m from hotel (free for guests)',\n    'faq_checkinout': '🕐 *Check-in & Check-out*\\n\\nCheck-in: 14:00\\nCheck-out: 11:00\\nEarly check-in: €30/hour\\nLate check-out: €25/hour\\nLuggage storage: Free',\n    'faq_transport':  '🚗 *Parking & Transport*\\n\\nFree parking: 30 spaces\\nAirport transfer (TIA): €60 one-way\\nMust book 24h in advance',\n    'faq_restaurant': '🍳 *Restaurant Mare Blu*\\n\\nBreakfast: 07:00–10:30\\nLunch: 12:00–15:00\\nDinner: 18:00–23:00\\nRooftop Bar \"Adriatic Sky\": 17:00–01:00',\n    'faq_wifi':       '📶 *WiFi*\\n\\nNetwork: ADRIATICA_GUEST\\nPassword: SeaBreeze2024\\nSpeed: 100 Mbps — Free throughout hotel'\n  };\n  replyText = faqMap[text] || 'Please select a topic from the menu above.';\n  if (faqMap[text]) {\n    replyText += '\\n\\nAnything else I can help you with?';\n    replyMarkup = { inline_keyboard: [[{ text: '❓ More FAQ', callback_data: 'intent_faq' }],[{ text: '↩️ Main Menu', callback_data: 'intent_start' }]] };\n  }\n  nextStep = 'awaiting_faq';\n\n} else if (step === 'awaiting_roomservice_detail') {\n  replyText = `✅ Order received:\\n\\n_\"${text}\"_\\n\\nEstimated delivery: 25 minutes. Is there anything else?`;\n  replyMarkup = { inline_keyboard: [[{ text: '↩️ Main Menu', callback_data: 'intent_start' }]] };\n  nextStep = 'start';\n\n} else if (step === 'awaiting_other_detail') {\n  replyText = `✅ Message forwarded to our concierge team:\\n\\n_\"${text}\"_\\n\\nWe will respond as soon as possible. Thank you! 🙏`;\n  replyMarkup = { inline_keyboard: [[{ text: '↩️ Main Menu', callback_data: 'intent_start' }]] };\n  nextStep = 'start';\n\n} else {\n  replyText = 'I\\'m here to help! What would you like to do?';\n  replyMarkup = mainMenu;\n  nextStep = 'awaiting_intent';\n}\n\nupdateSession.step = nextStep;\n\nreturn [{\n  json: {\n    ...data,\n    session: updateSession,\n    replyText,\n    replyMarkup,\n    nextStep\n  }\n}];"
+      },
+      "id": "ddda582a-5507-4de0-b01b-f47f76bb257b",
+      "name": "Process Conversation State",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -368,
+        128
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {},
+          "conditions": [
+            {
+              "leftValue": "={{ $json.nextStep }}",
+              "rightValue": "done",
+              "operator": {
+                "type": "string",
+                "operation": "notEquals"
+              }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "eb1731a7-72c4-4127-8465-2d4977383ecf",
+      "name": "Check Session Status",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        480,
+        144
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $env.GOOGLE_SHEET_ID }}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 766457483,
+          "mode": "list"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "chat_id": "={{ $json.chatId }}",
+            "step": "={{ $json.session.step }}",
+            "guest_name": "={{ $json.session.guestName }}",
+            "check-in": "={{ $json.session.checkin }}",
+            "check-out": "={{ $json.session.checkout }}",
+            "room_pref": "={{ $json.session.roomPref }}",
+            "guests": "={{ $json.session.guests }}",
+            "email": "={{ $json.session.email }}",
+            "intent": "={{ $json.session.intent }}",
+            "last_update": "={{ $json.timestamp }}"
+          },
+          "matchingColumns": [
+            "chat_id"
+          ],
+          "schema": [
+            {
+              "id": "chat_id",
+              "displayName": "chat_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "step",
+              "displayName": "step",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "guest_name",
+              "displayName": "guest_name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "check-in",
+              "displayName": "check-in",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "check-out",
+              "displayName": "check-out",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "room_pref",
+              "displayName": "room_pref",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "guests",
+              "displayName": "guests",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "email",
+              "displayName": "email",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "intent",
+              "displayName": "intent",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "last_update",
+              "displayName": "last_update",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "id": "6695a50f-a86a-49ca-b184-172ddc2d7e40",
+      "name": "Save Guest Session",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [
+        704,
+        48
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $env.GOOGLE_SHEET_ID }}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "value": "Telegram_Sessions",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "id": "252afbba-53f1-4f06-8701-c8dabf209161",
+      "name": "Close Completed Session",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [
+        704,
+        240
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $env.GOOGLE_SHEET_ID }}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "timestamp": "={{ $json.timestamp }}",
+            "session_id": "={{ $json.session.chatId }}",
+            "channel": "telegram",
+            "guest_name": "={{ $json.session.guestName }}",
+            "guest_phone": "={{ $json.session.chatId }}",
+            "guest_message": "={{ $json.text }}",
+            "intent": "={{ $json.session.intent }}",
+            "language": "en",
+            "urgency": "low",
+            "ai_response": "={{ $json.replyText }}",
+            "escalated": "false",
+            "hotel_code": "HTL001"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "timestamp",
+              "displayName": "timestamp",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "session_id",
+              "displayName": "session_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "channel",
+              "displayName": "channel",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "guest_name",
+              "displayName": "guest_name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "guest_phone",
+              "displayName": "guest_phone",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "guest_message",
+              "displayName": "guest_message",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "intent",
+              "displayName": "intent",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "language",
+              "displayName": "language",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "urgency",
+              "displayName": "urgency",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "pms_action",
+              "displayName": "pms_action",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "ai_response",
+              "displayName": "ai_response",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "escalated",
+              "displayName": "escalated",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "resolved",
+              "displayName": "resolved",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "hotel_code",
+              "displayName": "hotel_code",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "response_time_ms",
+              "displayName": "response_time_ms",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "id": "4a92b65b-902a-4d29-bc12-b6e200901604",
+      "name": "Log to Conversations Sheet",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [
+        928,
+        240
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={\"ok\": true}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "id": "400de0b8-e80f-48e9-a49a-93f9c45edcf5",
+      "name": "Webhook Response (200 OK)",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        928,
+        48
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.telegram.org/bot{{ $env.TELEGRAM_BOT_TOKEN }}/answerCallbackQuery",
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ JSON.stringify({ callback_query_id: $json.callbackQueryId || '' }) }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        48,
+        -16
+      ],
+      "id": "20a38fd9-6ea7-4aee-b758-f8389c79180b",
+      "name": "Answer Callback Query",
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.telegram.org/bot{{ $env.TELEGRAM_BOT_TOKEN }}/sendMessage",
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ (() => { const p = { chat_id: $json.chatId, text: $json.replyText, parse_mode: 'Markdown' }; if ($json.replyMarkup) p.reply_markup = JSON.stringify($json.replyMarkup); return JSON.stringify(p); })() }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        256,
+        144
+      ],
+      "id": "18947bd3-b6d7-420e-947f-5f0216068d2e",
+      "name": "HTTP Request (Send Message)"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "a5282d1c-26d4-4378-832a-ed802890cfa7",
+              "leftValue": "{{ $json.isCallback }}",
+              "rightValue": "true",
+              "operator": {
+                "type": "string",
+                "operation": "equals",
+                "name": "filter.operator.equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        -176,
+        128
+      ],
+      "id": "5b670023-c193-47b9-a6fd-7e45b9bbee28",
+      "name": "Is Callback Query?"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Receive Telegram Update": {
+      "main": [
+        [
+          {
+            "node": "Parse Telegram Payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Telegram Payload": {
+      "main": [
+        [
+          {
+            "node": "Retrieve Guest Session",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Retrieve Guest Session": {
+      "main": [
+        [
+          {
+            "node": "Build Guest Session State",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Guest Session State": {
+      "main": [
+        [
+          {
+            "node": "Process Conversation State",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Process Conversation State": {
+      "main": [
+        [
+          {
+            "node": "Is Callback Query?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Session Status": {
+      "main": [
+        [
+          {
+            "node": "Save Guest Session",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Close Completed Session",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Close Completed Session": {
+      "main": [
+        [
+          {
+            "node": "Log to Conversations Sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save Guest Session": {
+      "main": [
+        [
+          {
+            "node": "Webhook Response (200 OK)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Answer Callback Query": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request (Send Message)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "HTTP Request (Send Message)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request (Send Message)": {
+      "main": [
+        [
+          {
+            "node": "Check Session Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is Callback Query?": {
+      "main": [
+        [
+          {
+            "node": "Answer Callback Query",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "HTTP Request (Send Message)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "510587fd-bef2-497f-823c-0745abc87755",
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "id": "IiiB7PGe6en6v7dq",
+  "tags": []
+}
