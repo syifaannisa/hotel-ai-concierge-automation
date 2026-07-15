@@ -161,7 +161,7 @@ Simulated integrations and planned channels are labelled clearly.
 
 ### 1. Website and Tally intake
 
-**File:** [`workflows/website-tally-concierge.json`](workflows/website-tally-concierge.json)
+**File:** [`website-tally-concierge.json`](website-tally-concierge.json)
 
 This workflow receives a structured form submission and converts the submitted fields into a consistent guest-request object.
 
@@ -182,7 +182,7 @@ A production implementation should validate the form schema, verify webhook auth
 
 ### 2. Telegram concierge
 
-**File:** [`workflows/telegram-concierge.json`](workflows/telegram-concierge.json)
+**File:** [`telegram-concierge.json`](telegram-concierge.json)
 
 The Telegram workflow manages a step-by-step guest conversation.
 
@@ -204,7 +204,7 @@ The state-machine approach prevents the workflow from treating every message as 
 
 ### 3. Email concierge
 
-**File:** [`workflows/email-concierge.json`](workflows/email-concierge.json)
+**File:** [`email-concierge.json`](email-concierge.json)
 
 The email workflow monitors new enquiries, extracts the message context, detects language and intent, generates an AI-assisted reply, sends the response through Gmail, and records the interaction.
 
