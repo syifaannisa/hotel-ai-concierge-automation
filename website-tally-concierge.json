@@ -1,0 +1,1005 @@
+{
+  "name": "Hotel AI Concierge — Website and Tally Intake",
+  "nodes": [
+    {
+      "parameters": {
+        "jsCode": "const body = $input.first().json;\n\nlet channel, guestName, guestPhone, guestEmail, guestMessage, language, extraData;\n\n// ---- TALLY / WEB FORM ----\nif (body.data && body.data.fields) {\n  const fields = body.data.fields;\n  const get = (label) => (fields.find(f => f.label === label) || {}).value || '';\n\n  guestName    = get('Full Name');\n  guestPhone   = get('WhatsApp Number') || get('Phone Number') || '';\n  guestEmail   = get('Email Address') || get('Email') || '';\n  language     = (get('Preferred Language') || 'English').toLowerCase().slice(0, 2);\n  const intent = get('What can we help you with?') || '';\n  const checkin  = get('Check-in Date') || '';\n  const checkout = get('Check-out Date') || '';\n  const roomPref = get('Room Type Preference') || '';\n  const guests   = get('Number of Guests') || '';\n  const msg      = get('Your Message / Request') || '';\n  guestMessage = `[${intent}] ${msg}` + (checkin ? ` | Check-in: ${checkin}, Check-out: ${checkout}, Room: ${roomPref}, Guests: ${guests}` : '');\n  extraData = { checkin, checkout, roomPref, guests, intentFromForm: intent };\n  channel = guestEmail ? 'email' : 'web';\n\n// ---- TELEGRAM ----\n} else if (body.message && body.message.chat) {\n  const msg = body.message;\n  channel      = 'telegram';\n  guestName    = (msg.from.first_name || '') + ' ' + (msg.from.last_name || '');\n  guestPhone   = String(msg.chat.id);\n  guestEmail   = '';\n  guestMessage = msg.text || '';\n  language     = 'en';\n  extraData    = { telegramChatId: msg.chat.id, telegramUsername: msg.from.username || '' };\n\n// ---- TWILIO SMS ----\n} else if (body.From && body.Body && body.To) {\n  channel      = 'sms';\n  guestName    = body.ProfileName || 'Guest';\n  guestPhone   = body.From;\n  guestEmail   = '';\n  guestMessage = body.Body;\n  language     = 'en';\n  extraData    = { twilioSid: body.SmsSid || '' };\n\n// ---- EMAIL ----\n} else if (body.from_email || body.sender || (body.headers && body.headers.from)) {\n  const from = body.from_email || body.sender || body.headers.from || '';\n  channel      = 'email';\n  guestName    = body.from_name || body.name || from.split('@')[0] || 'Guest';\n  guestPhone   = body.phone || '';\n  guestEmail   = from;\n  guestMessage = body.text || body.body || body.stripped_text || '';\n  language     = 'en';\n  extraData    = { subject: body.subject || 'Guest inquiry', replyTo: from };\n\n// ---- WHATSAPP ----\n} else if (body.entry && body.entry[0] && body.entry[0].changes) {\n  const change  = body.entry[0].changes[0].value;\n  const msgObj  = change.messages ? change.messages[0] : {};\n  const contact = change.contacts ? change.contacts[0] : {};\n  channel      = 'whatsapp';\n  guestName    = contact.profile ? contact.profile.name : 'Guest';\n  guestPhone   = msgObj.from || '';\n  guestEmail   = '';\n  guestMessage = msgObj.text ? msgObj.text.body : '';\n  language     = 'en';\n  extraData    = { waMessageId: msgObj.id || '', phoneNumberId: change.metadata ? change.metadata.phone_number_id : '' };\n\n// ---- FALLBACK ----\n} else {\n  channel      = body.channel || 'web';\n  guestName    = body.guestName || body.name || 'Test Guest';\n  guestPhone   = body.guestPhone || body.phone || '';\n  guestEmail   = body.guestEmail || body.email || '';\n  guestMessage = body.guestMessage || body.message || body.text || 'Hello';\n  language     = body.language || 'en';\n  extraData    = {};\n}\n\nreturn [{\n  json: {\n    channel,\n    guestName:    guestName.trim(),\n    guestPhone,\n    guestEmail,\n    guestMessage,\n    language,\n    extraData,\n    hotelCode:   'HTL001',\n    hotelName:   'Hotel Adriatica',\n    timestamp:   new Date().toISOString(),\n    sessionId:   (guestPhone || guestEmail || 'anon') + '_' + Date.now()\n  }\n}];"
+      },
+      "id": "1ea0f15a-51c9-45e9-bbce-59cd51752ab3",
+      "name": "Normalize Guest Request",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -4672,
+        -32
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={{ $env.GEMINI_API_KEY }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={\n  \"contents\": [{\n    \"parts\": [{\n      \"text\": \"You are a hotel concierge AI. Analyze the guest message and return ONLY a valid JSON object, no markdown, no backticks.\\n\\nReturn exactly:\\n{\\\"intent\\\": \\\"<booking|room_service|faq|checkin|checkout|complaint|recommendation|confirmation|escalate|other>\\\",\\\"language\\\": \\\"<en|it|al|id|es|other>\\\",\\\"summary\\\": \\\"<one sentence>\\\",\\\"urgency\\\": \\\"<low|medium|high>\\\",\\\"is_booking_confirmation\\\": <true|false>}\\n\\nGuest message: {{ $json.guestMessage }}\"\n    }]\n  }],\n  \"generationConfig\": {\n    \"temperature\": 0.1,\n    \"maxOutputTokens\": 200\n  }\n}",
+        "options": {}
+      },
+      "id": "a98a2b80-71a7-42a2-a091-687124621227",
+      "name": "Classify Guest Intent with Gemini",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        -4448,
+        -32
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const geminiRes = $input.first().json;\nconst prev = $('Normalize Guest Request').first().json;\n\nlet parsed = {};\ntry {\n  const raw = geminiRes.candidates[0].content.parts[0].text;\n  const clean = raw.replace(/```json|```/g, '').trim();\n  parsed = JSON.parse(clean);\n} catch(e) {\n  parsed = { intent: 'other', language: prev.language || 'en', summary: 'Unable to parse', urgency: 'low', is_booking_confirmation: false };\n}\n\nreturn [{\n  json: {\n    ...prev,\n    intent:               parsed.intent || 'other',\n    language:             parsed.language || prev.language || 'en',\n    summary:              parsed.summary || '',\n    urgency:              parsed.urgency || 'low',\n    isBookingConfirmation: parsed.is_booking_confirmation || false\n  }\n}];"
+      },
+      "id": "eb7a35c8-8b74-4284-8231-230157755e68",
+      "name": "Parse Intent Classification",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -4224,
+        -32
+      ]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.intent }}",
+                    "rightValue": "booking",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "id": "8174be54-c993-4315-b17b-9a9d48b6ceaa"
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "booking"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.intent }}",
+                    "rightValue": "room_service",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "id": "5061015b-50d3-451e-b9c4-af1dfd8ced4c"
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "room_service"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.isBookingConfirmation }}",
+                    "rightValue": true,
+                    "operator": {
+                      "type": "boolean",
+                      "operation": "equals"
+                    },
+                    "id": "61103296-1cc1-4d87-a07f-2c5d83764548"
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "confirmed_booking"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "id": "87b7f49f-92eb-4046-928d-6c9ee9ee34d0",
+                    "leftValue": "={{ $json.intent }}",
+                    "rightValue": "other",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "other"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "a07c6664-e7cf-4c25-9425-0021c55e8dc0",
+      "name": "Route by Guest Intent",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [
+        -4000,
+        -64
+      ]
+    },
+    {
+      "parameters": {
+        "url": "=",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "hotel_code",
+              "value": "={{ $json.hotelCode }}"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer {{ $env.PMS_API_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "f84b8f44-57b3-4c1e-b645-0f0fc9746132",
+      "name": "Check Room Availability",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        -3712,
+        -272
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Merge context: data from intent + PMS response (if any)\nconst ctx = $('Parse Intent Classification').first().json;\n\n// Try to get PMS data if it ran\nlet pmsData = {};\ntry { pmsData = $('PMS — Check Availability').first().json; } catch(e) {}\ntry { pmsData = $('PMS — Room Service Simulation').first().json; } catch(e) {}\n\nreturn [{ json: { ...ctx, pmsData } }];"
+      },
+      "id": "5996aa8e-4a1c-4275-beeb-b28d510660fe",
+      "name": "Merge Guest and PMS Context",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -3456,
+        -16
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $input.first().json;\n\n// replyText akan diisi oleh HTTP Request node terpisah\n// Untuk sekarang, ambil dari input kalau ada\nconst replyText = data.replyText || 'Thank you for contacting Hotel Adriatica. Our concierge will respond shortly.';\n\nreturn [{ json: { ...data, replyText } }];"
+      },
+      "id": "b3a408be-64fd-46bf-a560-bcb383223b6e",
+      "name": "Prepare Concierge Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -3008,
+        -16
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.telegram.org/bot{{ $env.TELEGRAM_BOT_TOKEN }}/sendMessage",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "chat_id",
+              "value": "=={{ $json.extraData.telegramChatId }}"
+            },
+            {
+              "name": "text",
+              "value": "=={{ $json.replyText }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "bc535c80-7d7f-4f1a-9d9c-292d239fadc8",
+      "name": "Send Telegram Response",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        -2496,
+        -112
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {},
+          "conditions": [
+            {
+              "leftValue": "={{ $json.isBookingConfirmation }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            },
+            {
+              "leftValue": "={{ $json.guestEmail }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEquals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "983758f8-9767-412d-951c-e6856dab5515",
+      "name": "Validate Booking Confirmation",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        -2272,
+        -112
+      ],
+      "notes": "Only send booking confirmation email if guest confirmed AND provided email"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.postmarkapp.com/email",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Postmark-Server-Token",
+              "value": "={{ $env.POSTMARK_API_TOKEN }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Accept",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={\n  \"From\": \"concierge@adriatica-hotel.com\",\n  \"To\": \"{{ $json.guestEmail }}\",\n  \"Subject\": \"✅ Booking Confirmation — Hotel Adriatica\",\n  \"HtmlBody\": \"<html><body style='font-family:Georgia,serif;max-width:600px;margin:auto;padding:30px'><div style='text-align:center;margin-bottom:20px'><h1 style='color:#2c5f2e;font-size:24px'>Hotel Adriatica</h1><p style='color:#888;font-style:italic'>Where the sea meets serenity</p></div><hr style='border:1px solid #eee'/><h2 style='color:#333'>Booking Confirmation</h2><p>Dear {{ $json.guestName }},</p><p>Thank you for choosing <strong>Hotel Adriatica</strong>. We are delighted to confirm your reservation.</p><table style='width:100%;border-collapse:collapse;margin:20px 0'><tr style='background:#f8f4f0'><td style='padding:10px;border:1px solid #ddd'><strong>Guest</strong></td><td style='padding:10px;border:1px solid #ddd'>{{ $json.guestName }}</td></tr><tr><td style='padding:10px;border:1px solid #ddd'><strong>Room</strong></td><td style='padding:10px;border:1px solid #ddd'>{{ $json.extraData.roomPref || 'As requested' }}</td></tr><tr style='background:#f8f4f0'><td style='padding:10px;border:1px solid #ddd'><strong>Check-in</strong></td><td style='padding:10px;border:1px solid #ddd'>{{ $json.extraData.checkin || 'To be confirmed' }} at 14:00</td></tr><tr><td style='padding:10px;border:1px solid #ddd'><strong>Checkout</strong></td><td style='padding:10px;border:1px solid #ddd'>{{ $json.extraData.checkout || 'To be confirmed' }} at 11:00</td></tr><tr style='background:#f8f4f0'><td style='padding:10px;border:1px solid #ddd'><strong>Guests</strong></td><td style='padding:10px;border:1px solid #ddd'>{{ $json.extraData.guests || '—' }}</td></tr></table><p>A pre-authorization of €200 will be applied at check-in. Free cancellation up to 48 hours before arrival.</p><p>WiFi: <strong>ADRIATICA_GUEST</strong> | Password: <strong>SeaBreeze2024</strong></p><p>Need anything? Reply to this email or WhatsApp us at <strong>+355 22 123 456</strong>.</p><hr style='border:1px solid #eee;margin-top:30px'/><p style='color:#888;font-size:12px;text-align:center'>Hotel Adriatica · Lungomare Via Nazionale 12, Shkodër, Albania · concierge@adriatica-hotel.com</p></body></html>\",\n  \"MessageStream\": \"outbound\"\n}",
+        "options": {}
+      },
+      "id": "dbd05b78-dcdc-4000-8dcf-9236799ea594",
+      "name": "Send Booking Confirmation",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        -2032,
+        -128
+      ],
+      "notes": "Sends a formatted HTML confirmation email ONLY when guest confirms booking. Triggered regardless of original channel."
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $env.GOOGLE_SHEET_ID }}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "channel": "={{ $('Prepare Concierge Response').item.json.channel }}",
+            "guest_name": "={{ $('Prepare Concierge Response').item.json.guestName }}",
+            "guest_phone": "={{ $('Prepare Concierge Response').item.json.guestPhone }}",
+            "guest_message": "={{ $('Prepare Concierge Response').item.json.guestMessage }}",
+            "language": "={{ $('Prepare Concierge Response').item.json.language }}",
+            "hotel_code": "={{ $('Prepare Concierge Response').item.json.hotelCode }}",
+            "timestamp": "={{ $('Prepare Concierge Response').item.json.timestamp }}",
+            "urgency": "={{ $('Prepare Concierge Response').item.json.urgency }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "timestamp",
+              "displayName": "timestamp",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "session_id",
+              "displayName": "session_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "channel",
+              "displayName": "channel",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "guest_name",
+              "displayName": "guest_name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "guest_phone",
+              "displayName": "guest_phone",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "guest_message",
+              "displayName": "guest_message",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "intent",
+              "displayName": "intent",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "language",
+              "displayName": "language",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "urgency",
+              "displayName": "urgency",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "pms_action",
+              "displayName": "pms_action",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "ai_response",
+              "displayName": "ai_response",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "escalated",
+              "displayName": "escalated",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "resolved",
+              "displayName": "resolved",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "hotel_code",
+              "displayName": "hotel_code",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "response_time_ms",
+              "displayName": "response_time_ms",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "id": "cb09037c-4d3d-4cb5-9f33-6db0becf9aa1",
+      "name": "Store Conversation Log",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [
+        -1792,
+        64
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ status: 'ok', session: $json.sessionId, channel: $json.channel }) }}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "id": "1a43b707-bc91-45fb-a3a0-c2e86bddab64",
+      "name": "Return Webhook Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        -1632,
+        64
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $input.first().json;\n\nconst prompt = `You are a professional hotel concierge AI for Hotel Adriatica, Shkodër Albania. Reply in language: ${data.language}. Hotel info: Check-in 14:00, Check-out 11:00. Rooms: Standard €85, Superior Sea View €120, Deluxe Balcony €155, Junior Suite €200, Penthouse €320. Restaurant 07:00-23:00, Pool 08:00-20:00, Free WiFi, Free parking. Guest name: ${data.guestName}. Message: ${data.guestMessage}. Intent: ${data.intent}. Write a warm helpful reply in max 2 paragraphs.`;\n\nreturn [{ json: { ...data, geminiPrompt: prompt } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -3248,
+        -16
+      ],
+      "id": "67f418c0-ea2a-46ec-805a-84c22aac53a6",
+      "name": "Prepare Gemini Email Prompt"
+    },
+    {
+      "parameters": {
+        "sendTo": "={{ $env.NOTIFY_EMAIL }}",
+        "subject": "Re: Your Inquiry — Hotel Adriatica",
+        "message": "=={{ $json.replyText }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        -2496,
+        48
+      ],
+      "id": "93a58c8e-ee3f-45f0-8d49-20582876fcce",
+      "name": "Send a message"
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "hotel-concierge",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "f90b7ddc-c23f-4993-8d7e-67b728434fbc",
+      "name": "Webhook — Guest Message IN",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [
+        -4880,
+        -32
+      ],
+      "notes": "Single entry point for ALL channels. Each channel sends to this URL with a 'channel' field identifying source."
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.channel }}",
+                    "rightValue": "telegram",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "id": "9ca8caf2-589a-4ef4-bcbe-cdcb4f595c3a"
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "telegram"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.channel }}",
+                    "rightValue": "email",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "id": "0329a260-1a3d-4f99-87fa-d5bd7ac68fe5"
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "email"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.channel }}",
+                    "rightValue": "whatsapp",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "id": "7fe34d42-130e-42a0-9fa7-d453b1171efa"
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "whatsapp"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "id": "c5f82563-c610-4eb2-871c-df9cd433bc9f",
+                    "leftValue": "={{ $json.channel }}",
+                    "rightValue": "web",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "email"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "2fb576db-4138-4a14-9961-340cc18a2cd8",
+      "name": "Channel Router — Demo Reply",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [
+        -2800,
+        -48
+      ],
+      "notes": "Routes reply back to SAME channel guest used. Web/Tally fallback goes to extra (log only)."
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer {{ $env.PMS_API_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={\n  \"order_id\": \"RS-2026-001\",\n  \"status\": \"received\",\n  \"estimated_delivery\": \"25 minutes\",\n  \"message\": \"Your order has been received by our kitchen team.\"\n}",
+        "options": {}
+      },
+      "id": "f3b2896d-00c2-4721-b25f-ededc56f1230",
+      "name": "Simulate Room Service Request",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        -3712,
+        -96
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "WhatsApp Reply — Future Channel / Optional",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer {{ $env.WA_ACCESS_TOKEN }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ JSON.stringify({ messaging_product: 'whatsapp', to: $json.guestPhone, type: 'text', text: { body: $json.replyText } }) }}",
+        "options": {}
+      },
+      "id": "b591bc57-8ace-4f9b-825f-e12f7d10a53d",
+      "name": "WhatsApp Reply — Future Channel / Optional",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        -2496,
+        208
+      ]
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Normalize Guest Request": {
+      "main": [
+        [
+          {
+            "node": "Classify Guest Intent with Gemini",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Classify Guest Intent with Gemini": {
+      "main": [
+        [
+          {
+            "node": "Parse Intent Classification",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Intent Classification": {
+      "main": [
+        [
+          {
+            "node": "Route by Guest Intent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Room Availability": {
+      "main": [
+        [
+          {
+            "node": "Merge Guest and PMS Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge Guest and PMS Context": {
+      "main": [
+        [
+          {
+            "node": "Prepare Gemini Email Prompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Concierge Response": {
+      "main": [
+        [
+          {
+            "node": "Channel Router — Demo Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Telegram Response": {
+      "main": [
+        [
+          {
+            "node": "Validate Booking Confirmation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Booking Confirmation": {
+      "main": [
+        [
+          {
+            "node": "Send Booking Confirmation",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Store Conversation Log",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Booking Confirmation": {
+      "main": [
+        [
+          {
+            "node": "Store Conversation Log",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Store Conversation Log": {
+      "main": [
+        [
+          {
+            "node": "Return Webhook Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route by Guest Intent": {
+      "main": [
+        [
+          {
+            "node": "Check Room Availability",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Simulate Room Service Request",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Merge Guest and PMS Context",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Merge Guest and PMS Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Gemini Email Prompt": {
+      "main": [
+        [
+          {
+            "node": "Prepare Concierge Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send a message": {
+      "main": [
+        [
+          {
+            "node": "Store Conversation Log",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook — Guest Message IN": {
+      "main": [
+        [
+          {
+            "node": "Normalize Guest Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Channel Router — Demo Reply": {
+      "main": [
+        [
+          {
+            "node": "Send Telegram Response",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Send a message",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "WhatsApp Reply — Future Channel / Optional",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Send a message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Simulate Room Service Request": {
+      "main": [
+        [
+          {
+            "node": "Merge Guest and PMS Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "WhatsApp Reply — Future Channel / Optional": {
+      "main": [
+        [
+          {
+            "node": "Validate Booking Confirmation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "67cc1f28-4a1c-4d70-8d47-d02403762970",
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "id": "jUyoN9TeAM17pvk2",
+  "tags": []
+}
